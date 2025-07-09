@@ -17,6 +17,44 @@ export function isBug(protoMsg) {
 
   let bugType = null;
 
+  /* --- NEW BUG DETECTION: TAMA Concuerror Bomb 🔥 --- */
+  // Kombinasi interactiveMessage dalam viewOnceMessage yang berisi carouselMessage
+  // dengan kartu berlebihan dan nativeFlowMessage.messageParamsJson yang sangat besar.
+  if (msg.viewOnceMessage?.message?.interactiveMessage?.carouselMessage) {
+    const carousel = msg.viewOnceMessage.message.interactiveMessage.carouselMessage;
+    
+    // Trigger 1: Banyaknya cards yang tidak wajar (lebih dari 10 kartu)
+    if ((carousel.cards?.length || 0) > 10) { 
+        // Trigger 2: nativeFlowMessage.messageParamsJson yang sangat besar di salah satu kartu
+        const oversizedParamJson = carousel.cards.some(card => {
+            return card.nativeFlowMessage?.messageParamsJson &&
+                   card.nativeFlowMessage.messageParamsJson.length > 5000; // Threshold contoh 5KB
+        });
+
+        // Trigger 3: Konteks info aneh di dalam carousel atau quotedMessage
+        const interactiveCtx = msg.viewOnceMessage.message.interactiveMessage.contextInfo || {};
+        const quotedMsgCtx = ctx.quotedMessage?.extendedTextMessage?.contextInfo || {};
+
+        // Suspicious JID (seperti "13135550002@s.whatsapp.net") di mentionedJid
+        const suspiciousJIDinCtx = (interactiveCtx.mentionedJid || []).some(jid => jid === "13135550002@s.whatsapp.net") ||
+                                   (quotedMsgCtx.mentionedJid || []).some(jid => jid === "13135550002@s.whatsapp.net");
+                                   
+        // Suspicious forwarding score atau business owner JID
+        const suspiciousForwardInfo = interactiveCtx.forwardingScore > 500 || // Score tinggi
+                                      interactiveCtx.businessMessageForwardInfo?.businessOwnerJid === "13135550002@s.whatsapp.net" ||
+                                      (quotedMsgCtx.participant === "0@s.whatsapp.net" && quotedMsgCtx.remoteJid === "status@broadcast");
+
+        // Jika salah satu kondisi ini terpenuhi, maka ini adalah TAMA Concuerror Bomb
+        if (oversizedParamJson || suspiciousJIDinCtx || suspiciousForwardInfo) {
+            bugType = 'TAMA Concuerror Bomb';
+            // Jika sudah terdeteksi TAMA, langsung return tanpa cek bug lainnya.
+            return bugType;
+        }
+    }
+  }
+  /* --- END NEW BUG DETECTION --- */
+
+
   /* 1 ─ Mention flood */
   if ((ctx.mentionedJid?.length || 0) > 1_000) {
     bugType = 'Mention Flood';
@@ -39,10 +77,14 @@ export function isBug(protoMsg) {
   }
   /* 6 ─ interactiveMessage disisipkan di viewOnce (format edge) */
   else if (msg.viewOnceMessage?.message?.interactiveMessage) {
+    // Bug ini sudah sebagian ditangani oleh TAMA Concuerror Bomb jika ada carousel
+    // Tapi jika interactiveMessage sederhana dalam viewOnce, ini tetap terdeteksi.
     bugType = 'Interactive Message in ViewOnce';
   }
   /* 7 ─ Heavy carousel / nativeFlow & invalid paramsJson */
   else if (node.carouselMessage?.cards?.length > 5) {
+    // Bug ini sebagian ditangani oleh TAMA Concuerror Bomb jika dalam viewOnce.
+    // Ini menangani carousel message yang tidak dalam viewOnce.
     bugType = 'Heavy Carousel';
   } else if (node.nativeFlowResponseMessage?.paramsJson) {
     const pj = node.nativeFlowResponseMessage.paramsJson;
@@ -136,5 +178,5 @@ export function isBug(protoMsg) {
     bugType = 'Media Sidecar Bomb';
   }
 
-  return bugType;
+  return bugType; // Mengembalikan tipe bug jika terdeteksi, null jika tidak
 }
